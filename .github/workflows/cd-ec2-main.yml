@@ -1,0 +1,41 @@
+name: PUSH-TO-EC2-PRODUCTION
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to EC2 on master branch push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔎 Checkout the files
+        uses: actions/checkout@v3
+        
+      - name: 🌐 Check GH Action IP
+        run: curl https://api.ipify.org
+
+      - name: 🚀 Deploy to EC2 Server
+        uses: easingthemes/ssh-deploy@main
+        env:
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
+          GIT_USERNAME: ${{ secrets.GIT_USERNAME }}
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.HOST_DNS }}
+          REMOTE_USER: ${{ secrets.USERNAME }}
+          TARGET: ${{ secrets.TARGET_DIR }}
+        with:
+          REMOTE_HOST: ${{ secrets.HOST_DNS }}
+          REMOTE_USER: ${{ secrets.USERNAME }}
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SCRIPT_AFTER: |
+            cd /home/ubuntu/${{ secrets.TARGET_DIR }}
+            git pull https://x-access-token:${{ secrets.GIT_PASSWORD }}@github.com/${{ secrets.GIT_USERNAME }}/e-lua/demo-api-inventory-clean-architecture
+            curl -H "Content-Type: application/json" -X POST -d '{"content":"Starting deployment to production - inventory"}' ${{ secrets.WEBHOOK_URL_DISCORD }}
+            docker-compose stop
+            docker-compose --env-file .env.dev build || { curl -H "Content-Type: application/json" -X POST -d '{"content":"Deployment failed - Inventory"}' ${{ secrets.WEBHOOK_URL_DISCORD }}; exit 1; }
+            docker-compose --env-file .env.dev up -d --scale demo-api-inventory-clean-architecture=2
+            curl -H "Content-Type: application/json" -X POST -d '{"content":"Deployment has been finished successfully - Inventory"}' ${{ secrets.WEBHOOK_URL_DISCORD }}
+            docker rmi $(docker images --filter "dangling=true" -q --no-trunc)
